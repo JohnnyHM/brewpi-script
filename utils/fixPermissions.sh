@@ -21,8 +21,8 @@ die () {
 # the script path will one dir above the location of this bash file
 unset CDPATH
 myPath="$( cd "$( dirname "${BASH_SOURCE[0]}")" && pwd )"
-scriptPath="/home/brewpi/kegerator"
-webPath="/var/www/html/kegerator"
+scriptPath="$(dirname "$myPath")"
+webPath="/var/www"
 
 echo -e "\n***** Fixing file permissions for $webPath *****"
 sudo chown -R www-data:www-data "$webPath"||warn
