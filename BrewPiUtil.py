@@ -106,10 +106,16 @@ def removeDontRunFile(path='/var/www/do_not_run_brewpi'):
     else:
         print("File do_not_run_brewpi does not exist at " + path)
 
+def findSerialPort(bootLoader):
+    (port, name) = autoSerial.detect_port(bootLoader)
+    return port
 
 def setupSerial(config, baud_rate=57600, time_out=0.1):
     ser = None
+    dumpSerial = config.get('dumpSerial', False)
 
+    error1 = None
+    error2 = None
     # open serial port
     tries = 0
     logMessage("Opening serial port")
@@ -118,12 +124,15 @@ def setupSerial(config, baud_rate=57600, time_out=0.1):
         for portSetting in [config['port'], config['altport']]:
             if portSetting == None or portSetting == 'None' or portSetting == "none":
                 continue  # skip None setting
-            port = autoSerial.find_port(portSetting)
-            if not port:
-                error = "Could not find compatible serial devices \n"
-                continue # continue with altport
+            if portSetting == "auto":
+                port = findSerialPort(bootLoader=False)
+                if not port:
+                    error = "Could not find compatible serial devices \n"
+                    continue # continue with altport
+            else:
+                port = portSetting
             try:
-                ser = serial.serial_for_url(port['device'], baudrate=baud_rate, timeout=time_out, write_timeout=0)
+                ser = serial.Serial(port, baudrate=baud_rate, timeout=time_out, write_timeout=0)
                 if ser:
                     break
             except (IOError, OSError, serial.SerialException) as e:
@@ -140,6 +149,23 @@ def setupSerial(config, baud_rate=57600, time_out=0.1):
         ser.flushOutput()
     else:
          logMessage("Errors while opening serial port: \n" + error)
+
+    # yes this is monkey patching, but I don't see how to replace the methods on a dynamically instantiated type any other way
+    if dumpSerial:
+        ser.readOriginal = ser.read
+        ser.writeOriginal = ser.write
+
+        def readAndDump(size=1):
+            r = ser.readOriginal(size)
+            sys.stdout.write(r)
+            return r
+
+        def writeAndDump(data):
+            ser.writeOriginal(data)
+            sys.stderr.write(data)
+
+        ser.read = readAndDump
+        ser.write = writeAndDump
 
     return ser
 

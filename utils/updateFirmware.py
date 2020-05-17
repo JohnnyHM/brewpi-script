@@ -23,7 +23,6 @@ import subprocess
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..") # append parent directory to be able to import files
 import autoSerial
-from backgroundserial import BackGroundSerial
 
 # print everything in this file to stderr so it ends up in the correct log file for the web UI
 def printStdErr(*objs):
@@ -52,59 +51,61 @@ def updateFromGitHub(userInput, beta, useDfu, restoreSettings = True, restoreDev
     shield = None
     board = None
     family = None
-    
+    ser = None
+
     ### Get version number
     printStdErr("\nChecking current firmware version...")
-    bg_ser = BackGroundSerial(config.get('port', 'auto'))    
-    hwVersion = brewpiVersion.getVersionFromSerial(bg_ser)
-    
-    if hwVersion is not None:
+    try:
+        ser = util.setupSerial(config)
+        hwVersion = brewpiVersion.getVersionFromSerial(ser)
         family = hwVersion.family
         shield = hwVersion.shield
         board = hwVersion.board
-    else:
-        printStdErr("Unable to receive version from controller.\n"
-                    "Is your controller unresponsive and do you wish to try restoring your firmware? [y/N]: ")
-        choice = raw_input()
-        if not any(choice == x for x in ["yes", "Yes", "YES", "yes", "y", "Y"]):
-            printStdErr("Please make sure your controller is connected properly and try again.")
-            return 0
-        port = autoSerial.detect_port()
-        if not port:
-            printStdErr("Could not find compatible device in available serial ports.")
-            return 0
-        name = autoSerial.recognized_device_name(port)
-        if "Particle" in name:
-            family = "Particle"
-            if "P1" in name:
-                board = 'p1'
-            elif "Photon" in name:
-                board = 'photon'
-            elif "Core" in name:
-                board = 'core'
-        elif "Arduino" in name:
-            family = "Arduino"
-            if "Leonardo" in name:
-                board = 'leonardo'
-            elif "Uno" in name:
-                board = 'uno'
 
-        if board is None:
-            printStdErr("Unable to connect to controller, perhaps it is disconnected or otherwise unavailable.")
-            return -1
-        else:
-            printStdErr("Will try to restore the firmware on your %s" % name)
-            if family == "Arduino":
-                printStdErr("Assuming a Rev C shield. If this is not the case, please program your Arduino manually")
-                shield = 'RevC'
+        printStdErr("Found " + hwVersion.toExtendedString() + \
+               " on port " + ser.name + "\n")
+    except:
+        if hwVersion is None:
+            printStdErr("Unable to receive version from controller.\n"
+                        "Is your controller unresponsive and do you wish to try restoring your firmware? [y/N]: ")
+            choice = raw_input()
+            if not any(choice == x for x in ["yes", "Yes", "YES", "yes", "y", "Y"]):
+                printStdErr("Please make sure your controller is connected properly and try again.")
+                return 0
+            port, name = autoSerial.detect_port()
+            if not port:
+                printStdErr("Could not find compatible device in available serial ports.")
+                return 0
+            if "Particle" in name:
+                family = "Particle"
+                if "Photon" in name:
+                    board = 'photon'
+                elif "Core" in name:
+                    board = 'core'
+            elif "Arduino" in name:
+                family = "Arduino"
+                if "Leonardo" in name:
+                    board = 'leonardo'
+                elif "Uno" in name:
+                    board = 'uno'
+
+            if board is None:
+                printStdErr("Unable to connect to controller, perhaps it is disconnected or otherwise unavailable.")
+                return -1
             else:
-                printStdErr("Please put your controller in DFU mode now by holding the setup button during reset, until the LED blinks yellow.")
-                printStdErr("Press Enter when ready.")
-                choice = raw_input()
-                useDfu = True # use dfu mode when board is not responding to serial
+                printStdErr("Will try to restore the firmware on your %s" % name)
+                if family == "Arduino":
+                    printStdErr("Assuming a Rev C shield. If this is not the case, please program your Arduino manually")
+                    shield = 'RevC'
+                else:
+                    printStdErr("Please put your controller in DFU mode now by holding the setup button during reset, until the LED blinks yellow.")
+                    printStdErr("Press Enter when ready.")
+                    choice = raw_input()
+                    useDfu = True # use dfu mode when board is not responding to serial
 
-    bg_ser.stop()
-    del bg_ser
+    if ser:
+        ser.close()  # close serial port
+        ser = None
 
     if hwVersion:
         printStdErr("Current firmware version on controller: " + hwVersion.toString())
@@ -132,7 +133,7 @@ def updateFromGitHub(userInput, beta, useDfu, restoreSettings = True, restoreDev
         return -1
 
     # default tag is latest stable tag, or latest unstable tag if no stable tag is found
-    default_choice = next((i for i, t in enumerate(compatibleTags) if t in stableTags), 0)
+    default_choice = next((i for i, t in enumerate(compatibleTags) if t in stableTags), compatibleTags[0])
     tag = compatibleTags[default_choice]
 
     if userInput:
@@ -204,16 +205,16 @@ def updateFromGitHub(userInput, beta, useDfu, restoreSettings = True, restoreDev
         printStdErr("Error: Device family {0} not recognized".format(family))
         return -1
 
-    if board == "photon" or board == "p1" and useDfu:
+    if board == "photon":
         if hwVersion:
             oldVersion = hwVersion.version.vstring
         else:
             oldVersion = "0.0.0"
-        latestSystemTag = releases.getLatestTagForSystem(board, prerelease=beta, since=oldVersion)
+        latestSystemTag = releases.getLatestTagForSystem(prerelease=beta, since=oldVersion)
         if latestSystemTag is not None:
-            printStdErr("Updated system firmware for the {0} found in release {1}".format(board, latestSystemTag))
-            system1 = releases.getBin(latestSystemTag, [board, 'system-part1', '.bin'])
-            system2 = releases.getBin(latestSystemTag, [board, 'system-part2', '.bin'])
+            printStdErr("Updated system firmware for the photon found in release {0}".format(latestSystemTag))
+            system1 = releases.getBin(latestSystemTag, ['photon', 'system-part1', '.bin'])
+            system2 = releases.getBin(latestSystemTag, ['photon', 'system-part2', '.bin'])
             if system1:
                 printStdErr("Downloaded new system firmware to:\n")
                 printStdErr("{0}\nand\n".format(system1))
